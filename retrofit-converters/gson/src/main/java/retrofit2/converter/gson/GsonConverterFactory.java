@@ -32,6 +32,7 @@ import retrofit2.Retrofit;
  * all types. If you are mixing JSON serialization with something else (such as protocol buffers),
  * you must {@linkplain Retrofit.Builder#addConverterFactory(Converter.Factory) add this instance}
  * last to allow the other converters a chance to see their types.
+ * GsonConverterFactory.creat()是创建了一个含有Gson对象实例的GsonConverterFactory，并返回给addConverterFactory
  */
 public final class GsonConverterFactory extends Converter.Factory {
   /**
@@ -39,6 +40,7 @@ public final class GsonConverterFactory extends Converter.Factory {
    * decoding from JSON (when no charset is specified by a header) will use UTF-8.
    */
   public static GsonConverterFactory create() {
+    // 创建一个Gson对象
     return create(new Gson());
   }
 
@@ -49,6 +51,7 @@ public final class GsonConverterFactory extends Converter.Factory {
   @SuppressWarnings("ConstantConditions") // Guarding public API nullability.
   public static GsonConverterFactory create(Gson gson) {
     if (gson == null) throw new NullPointerException("gson == null");
+    // 创建了一个含有Gson对象实例的GsonConverterFactory
     return new GsonConverterFactory(gson);
   }
 

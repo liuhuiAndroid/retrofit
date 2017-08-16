@@ -21,6 +21,8 @@ import java.lang.reflect.Type;
 import javax.annotation.Nullable;
 
 /**
+ * 网络请求执行器（Call）的适配器
+ * 作用：将默认的网络请求执行器（OkHttp.Call）转换成适合被不同平台来调用的网络请求执行器形式
  * Adapts a {@link Call} with response type {@code R} into the type of {@code T}. Instances are
  * created by {@linkplain Factory a factory} which is
  * {@linkplain Retrofit.Builder#addCallAdapterFactory(Factory) installed} into the {@link Retrofit}

@@ -23,6 +23,9 @@ import okhttp3.Request;
 
 import static retrofit2.Utils.checkNotNull;
 
+/**
+ * 默认的CallAdapter.Factory
+ */
 final class ExecutorCallAdapterFactory extends CallAdapter.Factory {
   final Executor callbackExecutor;
 

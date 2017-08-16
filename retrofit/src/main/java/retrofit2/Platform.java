@@ -29,18 +29,22 @@ class Platform {
   private static final Platform PLATFORM = findPlatform();
 
   static Platform get() {
+    // 返回静态变量PLATFORM，即findPlatform()
     return PLATFORM;
   }
 
   private static Platform findPlatform() {
     try {
+      // Class.forName(xxx.xx.xx)的作用：要求JVM查找并加载指定的类（即JVM会执行该类的静态代码段）
       Class.forName("android.os.Build");
       if (Build.VERSION.SDK_INT != 0) {
+        // 返回一个Platform对象（指定了Android平台）
         return new Android();
       }
     } catch (ClassNotFoundException ignored) {
     }
     try {
+      // 支持Java平台
       Class.forName("java.util.Optional");
       return new Java8();
     } catch (ClassNotFoundException ignored) {
@@ -87,20 +91,34 @@ class Platform {
     }
   }
 
+  /**
+   * 用于接收服务器返回数据后进行线程切换在主线程显示结果
+   * 切换线程的流程：
+   * 1. 回调ExecutorCallAdapterFactory生成了一个ExecutorCallbackCall对象
+   * 2. 通过调用ExecutorCallbackCall.enqueue(CallBack)从而调用MainThreadExecutor的execute()通过handler切换到主线程
+   */
   static class Android extends Platform {
     @Override public Executor defaultCallbackExecutor() {
+      // 返回一个默认的回调方法执行器
+      // 该执行器作用：切换线程（子->>主线程），并在主线程（UI线程）中执行回调方法
       return new MainThreadExecutor();
     }
 
     @Override CallAdapter.Factory defaultCallAdapterFactory(@Nullable Executor callbackExecutor) {
       if (callbackExecutor == null) throw new AssertionError();
+      // 创建默认的网络请求适配器工厂
+      // 该默认工厂生产的 adapter 会使得Call在异步调用时在指定的 Executor 上执行回调
+      // 在Retrofit中提供了四种CallAdapterFactory： ExecutorCallAdapterFactory（默认）、GuavaCallAdapterFactory、Java8CallAdapterFactory、RxJava2CallAdapterFactory
+      // 采用了策略模式
       return new ExecutorCallAdapterFactory(callbackExecutor);
     }
 
     static class MainThreadExecutor implements Executor {
+      // 获取与Android 主线程绑定的Handler
       private final Handler handler = new Handler(Looper.getMainLooper());
 
       @Override public void execute(Runnable r) {
+        // 在UI线程进行对网络请求返回数据处理等操作。
         handler.post(r);
       }
     }
