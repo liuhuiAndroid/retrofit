@@ -63,6 +63,7 @@ public final class Retrofit {
 
     // 网络请求配置对象,包含所有网络请求信息的对象（对网络请求接口中方法注解进行解析后得到的对象）
     // 作用：存储网络请求相关的配置，如网络请求的方法、数据转换器、网络请求适配器、网络请求工厂、基地址等
+    // 为了提高效率，Retrofit还会对解析过的请求ServiceMethod进行缓存存放在这
     private final Map<Method, ServiceMethod<?, ?>> serviceMethodCache = new ConcurrentHashMap<>();
 
     // 网络请求器的工厂
@@ -155,6 +156,7 @@ public final class Retrofit {
      *   Call&lt;List&lt;Item&gt;&gt; categoryList(@Path("cat") String a, @Query("page") int b);
      * }
      * </pre>
+     * 外观模式
      */
     @SuppressWarnings("unchecked") // Single-interface proxy creation guarded by parameter safety.
     public <T> T create(final Class<T> service) {
@@ -190,9 +192,16 @@ public final class Retrofit {
                             return platform.invokeDefaultMethod(method, service, proxy, args);
                         }
                         //invoke方法的实现具体在下面三行代码
+                        // 关注点1
+                        // 作用：读取网络请求接口里的方法，并根据前面配置好的属性配置serviceMethod对象
                         ServiceMethod<Object, Object> serviceMethod =
                                 (ServiceMethod<Object, Object>) loadServiceMethod(method);
+                        // 关注点2
+                        // 作用：根据配置好的serviceMethod对象创建okHttpCall对象
                         OkHttpCall<Object> okHttpCall = new OkHttpCall<>(serviceMethod, args);
+                        // 关注点3
+                        // 作用：调用OkHttp，并根据okHttpCall返回rxjava的Observable对象或者返回Call
+                        // 将第二步创建的OkHttpCall对象传给第一步创建的serviceMethod对象中对应的网络请求适配器工厂的adapt（）
                         return serviceMethod.callAdapter.adapt(okHttpCall);
                     }
                 });
@@ -210,14 +219,26 @@ public final class Retrofit {
         }
     }
 
+    /*loadServiceMethod(method)方法*/
+    // 一个 ServiceMethod 对象对应于网络请求接口里的一个方法
+    // loadServiceMethod（method）负责加载 ServiceMethod：
+    //
+    // 这里就是上面说的创建实例的缓存机制：采用单例模式从而实现一个 ServiceMethod 对象对应于网络请求接口里的一个方法
+    // 注：由于每次获取接口实例都是传入 class 对象
+    // 而 class 对象在进程内单例的，所以获取到它的同一个方法 Method 实例也是单例的，所以这里的缓存是有效的。
     ServiceMethod<?, ?> loadServiceMethod(Method method) {
         ServiceMethod<?, ?> result = serviceMethodCache.get(method);
         if (result != null)
             return result;
 
+        // 设置线程同步锁
         synchronized (serviceMethodCache) {
+            // ServiceMethod类对象采用了单例模式进行创建
+            // 即创建ServiceMethod对象前，先看serviceMethodCache有没有缓存之前创建过的网络请求实例
             result = serviceMethodCache.get(method);
+            // 若没缓存，则通过建造者模式创建 serviceMethod 对象
             if (result == null) {
+                // 下面会详细介绍ServiceMethod生成实例的过程
                 result = new ServiceMethod.Builder<>(this, method).build();
                 serviceMethodCache.put(method, result);
             }
@@ -270,6 +291,10 @@ public final class Retrofit {
         checkNotNull(annotations, "annotations == null");
 
         int start = adapterFactories.indexOf(skipPast) + 1;
+
+        // 创建 CallAdapter 如下
+        // 遍历 CallAdapter.Factory 集合寻找合适的工厂（该工厂集合在第一步构造 Retrofit 对象时进行添加（第一步时已经说明））
+        // 如果最终没有工厂提供需要的 CallAdapter，将抛出异常
         for (int i = start, count = adapterFactories.size(); i < count; i++) {
             CallAdapter<?, ?> adapter = adapterFactories.get(i).get(returnType, annotations, this);
             if (adapter != null) {
@@ -379,6 +404,13 @@ public final class Retrofit {
 
         int start = converterFactories.indexOf(skipPast) + 1;
         for (int i = start, count = converterFactories.size(); i < count; i++) {
+
+            // 获取Converter 过程：（和获取 callAdapter 基本一致）
+            // -->关注点5
+            // 遍历 Converter.Factory 集合并寻找合适的工厂（该工厂集合在构造 Retrofit 对象时进行添加（第一步时已经说明））
+            // 由于构造Retroifit采用的是Gson解析方式，所以取出的是GsonResponseBodyConverter
+            // Retrofit - Converters 还提供了 JSON，XML，ProtoBuf 等类型数据的转换功能。
+            // 继续看responseBodyConverter（）
             Converter<ResponseBody, ?> converter =
                     converterFactories.get(i).responseBodyConverter(type, annotations, this);
             if (converter != null) {
@@ -643,11 +675,12 @@ public final class Retrofit {
          * OkHttpClient} will be created and used.
          */
         public Retrofit build() {
+            // baseUrl必须指定，这个是理所当然的
             if (baseUrl == null) {
                 throw new IllegalStateException("Base URL required.");
             }
 
-      /*配置网络请求执行器（callFactory）*/
+      /*配置网络请求执行器（callFactory） 默认是OkHttpClient*/
             okhttp3.Call.Factory callFactory = this.callFactory;
             if (callFactory == null) {
                 // 如果没指定，则默认使用okhttp,
@@ -663,14 +696,14 @@ public final class Retrofit {
                 callbackExecutor = platform.defaultCallbackExecutor();
             }
 
-       /* 配置网络请求适配器工厂（CallAdapterFactory）*/
+       /* 配置网络请求适配器工厂（CallAdapterFactory） ExecutorCallAdapterFactory*/
             // Make a defensive copy of the adapters and add the default Call adapter.
             // 向该集合中添加了CallAdapter.Factory请求适配器（添加在集合器末尾）
             List<CallAdapter.Factory> adapterFactories = new ArrayList<>(this.adapterFactories);
             // 请求适配器工厂集合存储顺序：自定义1适配器工厂、自定义2适配器工厂...默认适配器工厂（ExecutorCallAdapterFactory）
             adapterFactories.add(platform.defaultCallAdapterFactory(callbackExecutor));
 
-      /*配置数据转换器工厂：converterFactory*/
+      /*配置数据转换器工厂：converterFactory 一般是GsonConverterFactory*/
             // 数据转换器工厂集合存储的是：默认数据转换器工厂（ BuiltInConverters）、自定义1数据转换器工厂（GsonConverterFactory）、自定义2数据转换器工厂....
             // Make a defensive copy of the converters.
             List<Converter.Factory> converterFactories = new ArrayList<>(this.converterFactories);

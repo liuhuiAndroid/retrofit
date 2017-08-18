@@ -29,19 +29,30 @@ import okio.Okio;
 import static retrofit2.Utils.checkNotNull;
 
 final class OkHttpCall<T> implements Call<T> {
+
+  // 含有所有网络请求参数信息的对象
   private final ServiceMethod<T, ?> serviceMethod;
+
+  // 网络请求接口的参数
   private final @Nullable Object[] args;
 
   private volatile boolean canceled;
 
+  //实际进行网络访问的类
   @GuardedBy("this")
   private @Nullable okhttp3.Call rawCall;
+
+  //几个状态标志位
   @GuardedBy("this")
   private @Nullable Throwable creationFailure; // Either a RuntimeException or IOException.
   @GuardedBy("this")
   private boolean executed;
 
+  /**
+   * 构造函数
+   */
   OkHttpCall(ServiceMethod<T, ?> serviceMethod, @Nullable Object[] args) {
+    // 传入了配置好的ServiceMethod对象和输入的请求参数
     this.serviceMethod = serviceMethod;
     this.args = args;
   }
@@ -74,12 +85,18 @@ final class OkHttpCall<T> implements Call<T> {
     }
   }
 
+  /**
+   * 异步请求
+   * 异步请求的过程跟同步请求类似，唯一不同之处在于：异步请求会将回调方法交给回调执行器在指定的线程中执行。
+   */
   @Override public void enqueue(final Callback<T> callback) {
     checkNotNull(callback, "callback == null");
 
     okhttp3.Call call;
     Throwable failure;
 
+    // 步骤1：创建OkHttp的Request对象，再封装成OkHttp.call
+    // delegate代理在网络请求前的动作：创建OkHttp的Request对象，再封装成OkHttp.call
     synchronized (this) {
       if (executed) throw new IllegalStateException("Already executed.");
       executed = true;
@@ -88,6 +105,8 @@ final class OkHttpCall<T> implements Call<T> {
       failure = creationFailure;
       if (call == null && failure == null) {
         try {
+          // 创建OkHttp的Request对象，再封装成OkHttp.call
+          // 方法同发送同步请求，此处不作过多描述
           call = rawCall = createRawCall();
         } catch (Throwable t) {
           failure = creationFailure = t;
@@ -104,11 +123,15 @@ final class OkHttpCall<T> implements Call<T> {
       call.cancel();
     }
 
+    // 步骤2：发送网络请求
+    // delegate是OkHttpcall的静态代理
+    // delegate静态代理最终还是调用Okhttp.enqueue进行网络请求
     call.enqueue(new okhttp3.Callback() {
       @Override public void onResponse(okhttp3.Call call, okhttp3.Response rawResponse)
           throws IOException {
         Response<T> response;
         try {
+          // 步骤3：解析返回数据
           response = parseResponse(rawResponse);
         } catch (Throwable e) {
           callFailure(e);
@@ -150,6 +173,7 @@ final class OkHttpCall<T> implements Call<T> {
   @Override public Response<T> execute() throws IOException {
     okhttp3.Call call;
 
+    // 设置同步锁
     synchronized (this) {
       if (executed) throw new IllegalStateException("Already executed.");
       executed = true;
@@ -165,6 +189,8 @@ final class OkHttpCall<T> implements Call<T> {
       call = rawCall;
       if (call == null) {
         try {
+          // -->关注1
+          // 步骤1：创建一个OkHttp的Request对象请求
           call = rawCall = createRawCall();
         } catch (IOException | RuntimeException e) {
           creationFailure = e;
@@ -177,12 +203,23 @@ final class OkHttpCall<T> implements Call<T> {
       call.cancel();
     }
 
+    // -->关注2
+    // 步骤2：调用OkHttpCall的execute()发送网络请求（同步）
+    // 步骤3：解析网络请求返回的数据parseResponse（）
     return parseResponse(call.execute());
   }
 
+  /**
+   * 创建okhttp3.Call
+   */
   private okhttp3.Call createRawCall() throws IOException {
+
+    // 从ServiceMethod的toRequest（）返回一个Request对象
     Request request = serviceMethod.toRequest(args);
+
+    // 根据serviceMethod和request对象创建 一个okhttp3.Request
     okhttp3.Call call = serviceMethod.callFactory.newCall(request);
+
     if (call == null) {
       throw new NullPointerException("Call.Factory returned null.");
     }
@@ -197,6 +234,8 @@ final class OkHttpCall<T> implements Call<T> {
         .body(new NoContentResponseBody(rawBody.contentType(), rawBody.contentLength()))
         .build();
 
+    // 收到返回数据后进行状态码检查
+    // 具体关于状态码说明下面会详细介绍
     int code = rawResponse.code();
     if (code < 200 || code >= 300) {
       try {
@@ -215,7 +254,9 @@ final class OkHttpCall<T> implements Call<T> {
 
     ExceptionCatchingRequestBody catchingBody = new ExceptionCatchingRequestBody(rawBody);
     try {
+      // 等Http请求返回后 & 通过状态码检查后，将response body传入ServiceMethod中，ServiceMethod通过调用Converter接口（之前设置的GsonConverterFactory）将response body转成一个Java对象，即解析返回的数据
       T body = serviceMethod.toResponse(catchingBody);
+      // 生成Response类
       return Response.success(body, rawResponse);
     } catch (RuntimeException e) {
       // If the underlying source threw an exception, propagate that rather than indicating it was

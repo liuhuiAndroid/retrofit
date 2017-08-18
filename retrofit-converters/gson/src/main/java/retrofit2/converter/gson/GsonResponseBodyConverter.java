@@ -22,6 +22,7 @@ import java.io.IOException;
 import okhttp3.ResponseBody;
 import retrofit2.Converter;
 
+// 做数据转换时调用 Gson 的 API 即可。
 final class GsonResponseBodyConverter<T> implements Converter<ResponseBody, T> {
   private final Gson gson;
   private final TypeAdapter<T> adapter;

@@ -33,6 +33,9 @@ class Platform {
     return PLATFORM;
   }
 
+  /**
+   * 判断当前运行的环境.根据不同的运行环境还提供了不同的Executor
+   */
   private static Platform findPlatform() {
     try {
       // Class.forName(xxx.xx.xx)的作用：要求JVM查找并加载指定的类（即JVM会执行该类的静态代码段）

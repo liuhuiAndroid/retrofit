@@ -44,24 +44,42 @@ final class ExecutorCallAdapterFactory extends CallAdapter.Factory {
         return responseType;
       }
 
+      /**
+       * adapt返回的是ExecutorCallbackCall对象
+       */
       @Override public Call<Object> adapt(Call<Object> call) {
         return new ExecutorCallbackCall<>(callbackExecutor, call);
       }
     };
   }
 
+  /**
+   * ExecutorCallbackCall仅仅是对Call对象进行封装，类似装饰者模式，只不过将其执行时的回调通过callbackExecutor进行回调到UI线程中去了。
+   * @param <T>
+   */
   static final class ExecutorCallbackCall<T> implements Call<T> {
     final Executor callbackExecutor;
     final Call<T> delegate;
 
+    // 装饰模式:ExecutorCallbackCall = 装饰者，而里面真正去执行网络请求的还是OkHttpCall
+    // 使用装饰模式的原因：希望在OkHttpCall发送请求时做一些额外操作。这里的额外操作是线程转换，即将子线程切换到主线程
+    // ExecutorCallbackCall就是用于线程回调
     ExecutorCallbackCall(Executor callbackExecutor, Call<T> delegate) {
+
+      // 传入上面定义的回调方法执行器
+      // 用于进行线程切换
       this.callbackExecutor = callbackExecutor;
+
+      // 把上面创建并配置好参数的OkhttpCall对象交给静态代理delegate
+      // 静态代理和动态代理都属于代理模式
+      // 静态代理作用：代理执行被代理者的方法，且可在要执行的方法前后加入自己的动作，进行对系统功能的拓展
       this.delegate = delegate;
     }
 
     @Override public void enqueue(final Callback<T> callback) {
       checkNotNull(callback, "callback == null");
 
+      // 这个delegate实际上就是OkHttpCall对象
       delegate.enqueue(new Callback<T>() {
         @Override public void onResponse(Call<T> call, final Response<T> response) {
           callbackExecutor.execute(new Runnable() {
